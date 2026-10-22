@@ -1,21 +1,15 @@
-name: Deploy beta.graphty.app
+name: Deploy graphty.app
 
-# Publishes one beta build (a release of this repository) as the beta.graphty.app site.
-#
-# graphty-monorepo's deploy-pages.yml makes a release here for every green master build of
-# graphty-org/graphty-monorepo, tagged build-<commit>, holding the assembled site as two assets
-# (site.tar.gz, and data.tar.gz with /data/graph-samples/v1/), and then sends a "deploy" repository
-# dispatch naming the tag. To put an earlier build back on beta, run this workflow by hand with its tag.
+# graphty.app serves site/ of this repository's main branch. graphty-monorepo's promote-pages.yml commits to it:
+# a promotion (a whole build that graphty-monorepo already deployed to beta.graphty.app), or a release's hosted
+# datasets. Every such push deploys main as it is then. To redeploy, run this workflow by hand.
 on:
-    repository_dispatch:
-        types: [deploy]
+    push:
+        branches: [main]
+        paths: ["site/**"]
     workflow_dispatch:
-        inputs:
-            tag:
-                description: "The build's release tag (build-<commit>)"
-                required: true
 
-# One deploy at a time; a newer pending deploy replaces an older pending one.
+# One deploy at a time; a newer pending deploy replaces an older pending one (it deploys main's newer tip).
 concurrency:
     group: pages
 
@@ -25,35 +19,23 @@ permissions:
     id-token: write
 
 jobs:
-    build:
-        name: Unpack the build
-        runs-on: ubuntu-24.04
-        env:
-            TAG: ${{ github.event.client_payload.tag || inputs.tag }}
-        steps:
-            - name: Download and unpack the release assets
-              env:
-                  GH_TOKEN: ${{ github.token }}
-              run: |
-                  case "$TAG" in build-[0-9a-f]*) ;; *) echo "::error::not a build tag: '$TAG'"; exit 1 ;; esac
-                  gh release download "$TAG" -R "$GITHUB_REPOSITORY" -p '*.tar.gz' -D "$RUNNER_TEMP/assets"
-                  mkdir -p public
-                  for asset in "$RUNNER_TEMP"/assets/*.tar.gz; do tar -xzf "$asset" -C public; done
-                  grep -o 'name="graphty-build" content="[^"]*"' public/index.html
-
-            - uses: actions/configure-pages@v4
-
-            - uses: actions/upload-pages-artifact@v3
-              with:
-                  path: ./public
-
     deploy:
         name: Deploy
-        needs: build
         runs-on: ubuntu-24.04
         environment:
             name: github-pages
             url: ${{ steps.deployment.outputs.page_url }}
         steps:
+            - uses: actions/checkout@v4
+
+            - name: Check there is a site
+              run: grep -o 'name="graphty-build" content="[^"]*"' site/index.html
+
+            - uses: actions/configure-pages@v4
+
+            - uses: actions/upload-pages-artifact@v3
+              with:
+                  path: ./site
+
             - id: deployment
               uses: actions/deploy-pages@v4
